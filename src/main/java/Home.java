@@ -8,6 +8,7 @@ import lombok.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -23,6 +24,55 @@ import java.util.regex.Pattern;
 
 public class Home {
 
+    public enum Command{
+        SOMEBODY_BUYS(Pattern.compile("(tworzy zlecenia kupna ([0-9]*) za [0-9]{0,99},[0-9]{0,99}zł)"), Signal.SELL),
+        UNRECOGNIZED_COMMAND(null, null),
+        SOMEBODY_SELLS(Pattern.compile("(wystawia ten przedmiot na sprzedaż za [0-9]{0,99},[0-9]{0,99}[a-zA-Z]{0,99})"), Signal.BUY);
+
+        Pattern pattern;
+        Signal signal;
+
+        Command(Pattern pattern, Signal signal) {this.pattern = pattern; this.signal = signal;}
+
+        public Pattern getPattern() {return this.pattern;}
+        public Signal getSignal() {return this.signal;}
+
+        public static Command calculate(String text){
+            Pattern buy_pattern = SOMEBODY_BUYS.getPattern();
+            Pattern sell_pattern = SOMEBODY_SELLS.getPattern();
+
+            Matcher matcher = buy_pattern.matcher(text);
+            if(matcher.find()){
+                return SOMEBODY_BUYS;
+            }else{
+                matcher = sell_pattern.matcher(text);
+                if(matcher.find()){
+                    return SOMEBODY_SELLS;
+                }
+            }
+            return UNRECOGNIZED_COMMAND;
+        }
+
+    }
+
+    public static class HTMLUtils{
+        private static Map<String, String> escapes = Map.of("&quot;","", "&amp;","&","&lt;","<","&gt;",">");
+
+        public static String escapeHTML(String html){
+            for(Map.Entry<String, String> entry: escapes.entrySet()){
+                String escapeCharacter = entry.getKey();
+                boolean containsEscapeCharacter = html.contains(escapeCharacter);
+                if(containsEscapeCharacter){
+                    html = html.replaceAll(escapeCharacter, entry.getValue());
+                }
+            }
+            return html;
+        }
+
+        public static String cleanSlashesFromHTML(String html){
+            return html.replaceAll("\\\\", "");
+        }
+    }
     private static class DeserializeSuccessFromIntToBoolean extends StdDeserializer<Boolean> {
         public DeserializeSuccessFromIntToBoolean(){
             this(null);
@@ -170,11 +220,32 @@ public class Home {
         @JsonDeserialize(using = TimeStampToLocalDateTimeDeserializer.class)
         private LocalDateTime activity_time;
 
-        public static BuySellSignal extractBuySellSignalFromHTML(List<Element> activities){
+        public static List<BuySellSignal> extractBuySellSignalFromHTML(List<Element> activities){
+            List<BuySellSignal> signals = new ArrayList<>();
             for(Element element: activities){
-                String author=element.getElementsByClass("market_ticker_name").get(0).text();
+                Element body = element.getElementsByTag("body").get(0);
+
+                String escape = HTMLUtils.escapeHTML(body.toString());
+                String cleaned = HTMLUtils.cleanSlashesFromHTML(escape);
+
+                Element div = Jsoup.parse(cleaned).body();
+
+                String author = div.getElementsByClass("market_ticker_name").get(0).text();
+                String message = div.getElementsByClass("market_activity_line_item").get(0).getElementsByTag("span").get(0).text();
+
+                Command command = Command.calculate(message);
+
+                if(!Command.UNRECOGNIZED_COMMAND.equals(command)){
+                    BuySellSignal buySellSignal = new BuySellSignal.BuySellSignalBuilder()
+                            .author(author)
+                            .msg(message)
+                            .signal(command.getSignal())
+                            .build();
+                    signals.add(buySellSignal);
+                }
+
             }
-            return null;
+            return signals;
         }
     }
 
@@ -203,14 +274,20 @@ public class Home {
         }
     }
 
+    enum Signal{
+        SELL,
+        BUY
+    }
+
+    @ToString
     @Getter
     @Setter
     @Builder
     private static class BuySellSignal{
         private String author;
-        private String message;
-        private boolean sellSignal;
-        private boolean buySignal;
+        private double price;
+        private String msg;
+        private Signal signal;
     }
 
     @FunctionalInterface
@@ -259,15 +336,13 @@ public class Home {
             return status >= min && status < max;
         }
     }
+
     public static class SteamEndpoints{
         public static final String ITEM_ENDPOINT="https://steamcommunity.com/market/listings/{gameId}";
         public static final String ITEM_ACTIVITY="https://steamcommunity.com/market/itemordersactivity";
     }
+
     public static class ItemOrderHistogramConstants{
-        /**
-         * correct endpointExample=https://steamcommunity.com/market/itemordershistogram?country=US&language=english&currency=1&item_nameid=1
-         */
-        public static final String MARKETPLACE_URL = "https://steamcommunity.com/market/itemordershistogram";
         public static final String COUNTRY = "country";
         public static final String LANGUAGE = "language";
         public static final String CURRENCY = "currency";
@@ -481,18 +556,19 @@ public class Home {
 
                     ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
                     ActivityForItem activityForItem = objectMapper.readValue(jsonBody, ActivityForItem.class);
-                    System.out.println(activityForItem);
+                    List<BuySellSignal> buySellSignals = ActivityForItem.extractBuySellSignalFromHTML(activityForItem.getActivities());
+                    for(BuySellSignal buySellSignal: buySellSignals) {
+                        System.out.println(buySellSignal);
+                    }
                     SignalChecker checker = new SignalChecker() {
                         @Override
                         public BuySellSignal check(double requiredSellPrice,
                                                    double requiredBuyPrice,
                                                    ActivityForItem activityForItem) {
-
                             return null;
                         }
                     };
-
-                    //snipeCriteria.checkIfActivityIsSignal(checker, activityForItem);
+                    snipeCriteria.checkIfActivityIsSignal(checker, activityForItem);
                 }else{
                     System.out.println("server responded with status: " + responseStatus);
                 }
@@ -519,6 +595,8 @@ public class Home {
                 .currency(RequestObject.Currency.PL.getCurrencyCode())
                 .itemNameId(14962905).build();
 
-        fetcher.snipeItemActivity(requestObject, null);
+        fetcher.snipeItemActivity(requestObject, new SnipeCriteria.SnipeCriteriaBuilder()
+
+                .build());
     }
 }
