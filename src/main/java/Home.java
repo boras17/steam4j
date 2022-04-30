@@ -1,6 +1,7 @@
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
@@ -9,6 +10,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,7 +20,9 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
-import java.util.function.Consumer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -138,7 +142,7 @@ public class Home {
         }
     }
 
-    public static class ActivitiesDeserializer extends StdDeserializer<List<Element>>{
+    public static class ActivitiesDeserializer extends StdDeserializer<Element>{
 
         public ActivitiesDeserializer(){
             this(null);
@@ -149,7 +153,7 @@ public class Home {
         }
 
         @Override
-        public List<Element> deserialize(JsonParser jsonParser, DeserializationContext deserializationContext)
+        public Element deserialize(JsonParser jsonParser, DeserializationContext deserializationContext)
                 throws IOException, JacksonException {
             ObjectMapper objectMapper = (ObjectMapper) jsonParser.getCodec();
             JsonNode node = objectMapper.readTree(jsonParser);
@@ -160,13 +164,13 @@ public class Home {
                     String arr_field_str = array_filed.toString();
                     Element activity_html_element = Jsoup.parse(arr_field_str);
                     activities.add(activity_html_element);
-                    return activities;
+                    return activities.get(0);
                 }
             }else{
                 throw new RuntimeException("ActivitiesDeserializer have to be changed because steam is not sending array of activities");
             }
 
-            return Collections.emptyList();
+            return null;
         }
     }
 
@@ -215,14 +219,12 @@ public class Home {
         private boolean success;
         @JsonProperty("activity")
         @JsonDeserialize(using = ActivitiesDeserializer.class)
-        private List<Element> activities;
+        private Element activities;
         @JsonProperty("timestamp")
         @JsonDeserialize(using = TimeStampToLocalDateTimeDeserializer.class)
         private LocalDateTime activity_time;
 
-        public static List<BuySellSignal> extractBuySellSignalFromHTML(List<Element> activities){
-            List<BuySellSignal> signals = new ArrayList<>();
-            for(Element element: activities){
+        public static BuySellSignal extractBuySellSignalFromHTML(Element element){
                 Element body = element.getElementsByTag("body").get(0);
 
                 String escape = HTMLUtils.escapeHTML(body.toString());
@@ -233,31 +235,41 @@ public class Home {
                 String author = div.getElementsByClass("market_ticker_name").get(0).text();
                 String message = div.getElementsByClass("market_activity_line_item").get(0).getElementsByTag("span").get(0).text();
 
+                Pattern pattern = Pattern.compile("([0-9]{1,},[0-9]{0,})");
+                Matcher matcher = pattern.matcher(message);
+                double price = 0;
+                if(matcher.find()){
+                    String[] pricePart = matcher.group(1).split(",");
+                    if(pricePart.length == 2){
+                        price = Double.parseDouble(pricePart[0]) + (Double.parseDouble(pricePart[1])/100);
+                    }else{
+                        price = Double.parseDouble(pricePart[0]);
+                    }
+                }
                 Command command = Command.calculate(message);
 
                 if(!Command.UNRECOGNIZED_COMMAND.equals(command)){
-                    BuySellSignal buySellSignal = new BuySellSignal.BuySellSignalBuilder()
+                    return new BuySellSignal.BuySellSignalBuilder()
                             .author(author)
                             .msg(message)
+                            .price(price)
                             .signal(command.getSignal())
                             .build();
-                    signals.add(buySellSignal);
+                }else{
+                    throw new RuntimeException("Unrecognized activity");
                 }
-
-            }
-            return signals;
         }
     }
 
     interface ActivityNotificationStrategy{
-        void handleNotification(ActivityForItem activityForItem);
+        void handleNotification(BuySellSignal activityForItem);
     }
 
     public static class EmailNotificationStrategy implements ActivityNotificationStrategy{
 
         @Override
-        public void handleNotification(ActivityForItem event) {
-            System.out.println("I am sending email becouse i go event: " + event);
+        public void handleNotification(BuySellSignal event) {
+            System.out.println(event);
         }
 
     }
@@ -269,7 +281,7 @@ public class Home {
             this.eventNotificationStrategy = eventNotificationStrategy;
         }
 
-        public void notifyMe(ActivityForItem notificationObject){
+        public void notifyMe(BuySellSignal notificationObject){
             this.eventNotificationStrategy.handleNotification(notificationObject);
         }
     }
@@ -290,22 +302,13 @@ public class Home {
         private Signal signal;
     }
 
-    @FunctionalInterface
-    interface SignalChecker{
-        BuySellSignal check(double requiredSellPrice, double requiredBuyPrice, ActivityForItem activityForItem);
-    }
-
     @Builder
     @Getter
     @Setter
     public static class SnipeCriteria{
-        private Consumer<ActivityForItem> activityCallback;
+        private Predicate<BuySellSignal> activityCallback;
         private double requiredSellPrice;
         private double requiredBuyPrice;
-
-       public BuySellSignal checkIfActivityIsSignal(SignalChecker signalChecker, ActivityForItem activityForItem){
-           return signalChecker.check(this.requiredSellPrice, requiredBuyPrice, activityForItem);
-       }
     }
 
     @ToString
@@ -475,6 +478,21 @@ public class Home {
         }
     }
 
+    public static class ObservedItems{
+        private static Map<String, SnipeCriteria> itemNameIdSnipeCriteria = new HashMap<>();
+
+        public static void loadDataFromFile(File configFile){
+            ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
+            try{
+                Map<String, SnipeCriteria> config = objectMapper.readValue(configFile, new TypeReference<Map<String, SnipeCriteria>>() {});
+                itemNameIdSnipeCriteria.putAll(config);
+            }catch (java.io.IOException e) {
+                e.printStackTrace();
+            }
+
+        }
+    }
+
     @AllArgsConstructor
     @Getter
     private static class Fetcher{
@@ -492,7 +510,6 @@ public class Home {
                 HttpResponse<String> itemPriceHistogramJsonResponse = client.send(  itemPriceHistogramRequest,
                         HttpResponse.BodyHandlers.ofString());
                 int responseStatus = itemPriceHistogramJsonResponse.statusCode();
-                System.out.println(responseStatus);
                 if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
                     String jsonBody = itemPriceHistogramJsonResponse.body();
                     ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
@@ -537,66 +554,71 @@ public class Home {
 
         /**
          *
-         * @param requestObject
-         * @param notification criteria object with optional callback
          */
-        public void snipeItemActivity(RequestObject requestObject, SnipeCriteria snipeCriteria){
-            URI endpoint_uri = EndpointUtils.buildURIForRequestObject(requestObject, SteamEndpoints.ITEM_ACTIVITY);
-            System.out.println(endpoint_uri);
-            HttpRequest hitEndpointForCheckingActions = HttpRequest.newBuilder()
-                    .GET()
-                    .uri(endpoint_uri)
-                    .build();
-            try{
-                HttpResponse<String> response = this.client.send(hitEndpointForCheckingActions, HttpResponse.BodyHandlers.ofString());
-                int responseStatus = response.statusCode();
+        public Runnable snipeItemActivity(RequestObject requestObject, SnipeCriteria snipeCriteria, Notifier notifier){
+                return () -> {
+                    while(true){
+                        URI endpoint_uri = EndpointUtils.buildURIForRequestObject(requestObject, SteamEndpoints.ITEM_ACTIVITY);
+                        System.out.println(endpoint_uri);
+                        HttpRequest hitEndpointForCheckingActions = HttpRequest.newBuilder()
+                                .GET()
+                                .uri(endpoint_uri)
+                                .build();
+                        try{
+                            HttpResponse<String> response = this.client.send(hitEndpointForCheckingActions, HttpResponse.BodyHandlers.ofString());
+                            int responseStatus = response.statusCode();
 
-                if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
-                    String jsonBody = response.body();
+                            if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
+                                String jsonBody = response.body();
 
-                    ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
-                    ActivityForItem activityForItem = objectMapper.readValue(jsonBody, ActivityForItem.class);
-                    List<BuySellSignal> buySellSignals = ActivityForItem.extractBuySellSignalFromHTML(activityForItem.getActivities());
-                    for(BuySellSignal buySellSignal: buySellSignals) {
-                        System.out.println(buySellSignal);
-                    }
-                    SignalChecker checker = new SignalChecker() {
-                        @Override
-                        public BuySellSignal check(double requiredSellPrice,
-                                                   double requiredBuyPrice,
-                                                   ActivityForItem activityForItem) {
-                            return null;
+                                ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
+                                ActivityForItem activityForItem = objectMapper.readValue(jsonBody, ActivityForItem.class);
+                                BuySellSignal buySellSignals = ActivityForItem.extractBuySellSignalFromHTML(activityForItem.getActivities());
+
+                                boolean should_notify = snipeCriteria.getActivityCallback()
+                                        .test(buySellSignals);
+                                if(should_notify){
+                                    notifier.notifyMe(buySellSignals);
+                                }
+                            }else{
+                                System.out.println("server responded with status: " + responseStatus);
+                            }
+                        }catch (IOException | InterruptedException e){
+                            e.printStackTrace();
                         }
-                    };
-                    snipeCriteria.checkIfActivityIsSignal(checker, activityForItem);
-                }else{
-                    System.out.println("server responded with status: " + responseStatus);
-                }
-
-                String jsonResponse = response.body();
-            }catch (IOException | InterruptedException e){
-                e.printStackTrace();
+                    }
+                };
+        }
+        public void startSniping(ExecutorService executorService, Map<Integer, SnipeCriteria> itemsWithCriteria, Notifier notifier){
+            for(Map.Entry<Integer, SnipeCriteria> snipe: itemsWithCriteria.entrySet()){
+                RequestObject requestObject = new RequestObject.RequestObjectBuilder()
+                        .itemNameId(snipe.getKey())
+                        .countryCode(RequestObject.Country.PL.getCountryCode())
+                        .language(RequestObject.Country.PL.getLanguageForCountry())
+                        .currency(RequestObject.Currency.PL.getCurrencyCode())
+                        .build();
+                executorService.submit(this.snipeItemActivity(requestObject, snipe.getValue(), notifier));
             }
         }
     }
     public static void main(String[] args) {
-        RequestObject.Country country = RequestObject.Country.PL;
-
         HttpClient simpleClient = HttpClient.newBuilder()
                 .build();
 
         Fetcher fetcher = new Fetcher(simpleClient);
+        Notifier notifier = new Notifier(new EmailNotificationStrategy());
 
-        String str_to_encode="Operation Broken Fang Case";
+        Map<Integer, SnipeCriteria> snipeCriteriaMap = Map.of(14962905, new SnipeCriteria.SnipeCriteriaBuilder()
+                        .activityCallback(new Predicate<BuySellSignal>() {
+                            @Override
+                            public boolean test(BuySellSignal buySellSignal) {
+                                return Signal.BUY.equals(buySellSignal.getSignal()) ||
+                                        Signal.SELL.equals(buySellSignal.getSignal());
+                            }
+                        }).build());
 
-        RequestObject requestObject = new RequestObject.RequestObjectBuilder()
-                .countryCode(country.getCountryCode())
-                .language(country.getLanguageForCountry())
-                .currency(RequestObject.Currency.PL.getCurrencyCode())
-                .itemNameId(14962905).build();
+        fetcher.startSniping(Executors.newCachedThreadPool(), snipeCriteriaMap, notifier);
 
-        fetcher.snipeItemActivity(requestObject, new SnipeCriteria.SnipeCriteriaBuilder()
-
-                .build());
+        //TODO check if current request is equal to previous request
     }
 }
