@@ -18,10 +18,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -243,9 +240,6 @@ public class Home {
                             .signal(command.getSignal())
                             .build();
                 }else{
-                    if (!(message.isEmpty() | message.isBlank())){
-                        System.out.println("unrecognized activity: " + message);
-                    }
                     return null;
                 }
         }
@@ -403,6 +397,24 @@ public class Home {
             String getCountryCode() {return this.countryCode;} String getLanguageForCountry(){return this.countryLanguage;}
         }
 
+        public static RequestObject buildDefaultRequestObjectForCountry(Country country, int itemNameId){
+            // TODO default build for EUR
+            return switch (country){
+                case PL -> new RequestObjectBuilder()
+                        .countryCode(Country.PL.getCountryCode())
+                        .currency(Currency.PL.getCurrencyCode())
+                        .language(Country.PL.getLanguageForCountry())
+                        .itemNameId(itemNameId)
+                        .build();
+                case US -> new RequestObjectBuilder()
+                        .countryCode(Country.US.getCountryCode())
+                        .currency(Currency.USD.getCurrencyCode())
+                        .language(Country.US.getLanguageForCountry())
+                        .itemNameId(itemNameId)
+                        .build();
+            };
+        }
+
     }
 
     private static class EndpointUtils{
@@ -486,13 +498,28 @@ public class Home {
     }
 
     @Getter
+    @Setter
+    @Builder
+    private static class ItemSnipingData{
+        private int breakTimeBetweenRequestsInMillis;
+        private int itemNameId;
+        private SnipeCriteria snipeCriteria;
+    }
+
+    @Getter
     private static class Fetcher{
-        private ConcurrentHashMap<Integer, Thread> item_thread = new ConcurrentHashMap<>();
+        private ConcurrentHashMap<Integer, Thread> itemThread = new ConcurrentHashMap<>();
+        private CopyOnWriteArrayList<ItemSnipingData> snipedItems = new CopyOnWriteArrayList<>();
+        private RequestObject.Country country;
 
         private final HttpClient client;
 
         public Fetcher(HttpClient client) {
             this.client = client;
+        }
+
+        public void setFetchingCountry(RequestObject.Country country){
+            this.country = country;
         }
 
         public Optional<ItemPriceHistogram> getItemPriceHistogram(RequestObject requestObject){
@@ -579,13 +606,27 @@ public class Home {
             return null;
         }
 
-        public CompletableFuture<BuySellSignal> tryToGetSignalAsync(RequestObject requestObject){
-            return CompletableFuture.supplyAsync(() -> this.tryToGetSignal(requestObject));
+        public void tryToStopSnipingItem(int itemNameId){
+            boolean itemPresentInMap = this.itemThread.containsKey(itemNameId);
+            if(itemPresentInMap){
+                Thread itemThread = this.itemThread.get(itemNameId);
+                itemThread.interrupt();
+                this.itemThread.remove(itemNameId);
+                this.snipedItems.removeIf(new Predicate<ItemSnipingData>() {
+                    @Override
+                    public boolean test(ItemSnipingData itemSnipingData) {
+                        return itemSnipingData.getItemNameId() == itemNameId;
+                    }
+                });
+            }else{
+                throw new RuntimeException("Item not present in map");
+            }
         }
+
         public Runnable tryToGetSignalDistinct(RequestObject requestObject, SnipeCriteria snipeCriteria, Notifier notifier) {
             return () -> {
                 long prevResponseTimestamp = 0;
-                item_thread.putIfAbsent(requestObject.getItemNameId(), Thread.currentThread());
+                itemThread.putIfAbsent(requestObject.getItemNameId(), Thread.currentThread());
 
                 while (!Thread.currentThread().isInterrupted()) {
                     try{
@@ -615,35 +656,59 @@ public class Home {
             };
         }
 
-        public void startSniping(ExecutorService executorService, Map<Integer, SnipeCriteria> itemsWithCriteria, Notifier notifier){
-            for(Map.Entry<Integer, SnipeCriteria> snipe: itemsWithCriteria.entrySet()){
-                RequestObject requestObject = new RequestObject.RequestObjectBuilder()
-                        .itemNameId(snipe.getKey())
-                        .countryCode(RequestObject.Country.PL.getCountryCode())
-                        .language(RequestObject.Country.PL.getLanguageForCountry())
-                        .currency(RequestObject.Currency.PL.getCurrencyCode())
-                        .build();
-                executorService.submit(this.tryToGetSignalDistinct(requestObject, snipe.getValue(), notifier));
+        public void addSnipedItem(ItemSnipingData itemSnipingData){
+            this.snipedItems.add(itemSnipingData);
+        }
+
+        public void addSnipedItems(List<ItemSnipingData> items){
+            this.snipedItems.addAll(items);
+        }
+
+        public void startSnipingItem(ExecutorService executorService,  Notifier notifier){
+            int listSize = this.snipedItems.size();
+            ItemSnipingData lastAddedSnipedItem = this.snipedItems.get(listSize-1);
+            // create request object for this item
+            RequestObject requestObjectForNewItem = RequestObject.buildDefaultRequestObjectForCountry(this.country, lastAddedSnipedItem.getItemNameId());
+            executorService.submit(this.tryToGetSignalDistinct( requestObjectForNewItem,
+                                                                lastAddedSnipedItem.getSnipeCriteria(),
+                                                                notifier));
+        }
+
+        public void startSniping(ExecutorService executorService,  Notifier notifier){
+            for(ItemSnipingData snipe: this.snipedItems){
+                int itemNameId = snipe.getItemNameId();
+                RequestObject requestObject = RequestObject.buildDefaultRequestObjectForCountry(this.country, itemNameId);
+                executorService.submit(this.tryToGetSignalDistinct(requestObject, snipe.getSnipeCriteria(), notifier));
             }
         }
+
     }
+
+
     public static void main(String[] args) {
         HttpClient simpleClient = HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.ALWAYS)
                 .build();
 
         Fetcher fetcher = new Fetcher(simpleClient);
-        Notifier notifier = new Notifier(new EmailNotificationStrategy());
 
-        Map<Integer, SnipeCriteria> snipeCriteriaMap = Map.of(14962905, new SnipeCriteria.SnipeCriteriaBuilder()
+        fetcher.setFetchingCountry(RequestObject.Country.PL);
+        fetcher.addSnipedItem(new ItemSnipingData.ItemSnipingDataBuilder()
+                .itemNameId(14962905)
+                .breakTimeBetweenRequestsInMillis(100)
+                .snipeCriteria(new SnipeCriteria.SnipeCriteriaBuilder()
                         .activityCallback(new Predicate<BuySellSignal>() {
                             @Override
                             public boolean test(BuySellSignal buySellSignal) {
                                 return true;
                             }
-                        }).build());
+                        })
+                        .build())
+                .build());
 
-        fetcher.startSniping(Executors.newSingleThreadExecutor(), snipeCriteriaMap, notifier);
+        Notifier notifier = new Notifier(new EmailNotificationStrategy());
+
+        fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
 
 
     }
