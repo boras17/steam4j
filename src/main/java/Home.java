@@ -1,3 +1,4 @@
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.JsonParser;
@@ -16,10 +17,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Predicate;
@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 public class Home {
 
     public enum Command{
-        SOMEBODY_BUYS(Pattern.compile("(tworzy zlecenia kupna ([0-9]*) za [0-9]{0,99},[0-9]{0,99}zł)"), Signal.SELL),
+        SOMEBODY_BUYS(Pattern.compile("(tworzy zlecenia kupna ([0-9]{0,}) za [0-9]{0,99},[0-9]{0,99}zł)"), Signal.SELL),
         UNRECOGNIZED_COMMAND(null, null),
         SOMEBODY_SELLS(Pattern.compile("(wystawia ten przedmiot na sprzedaż za [0-9]{0,99},[0-9]{0,99}[a-zA-Z]{0,99})"), Signal.BUY);
 
@@ -87,6 +87,7 @@ public class Home {
 
         @Override
         public Boolean deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException {
+            System.out.println();
             int successValue = jsonParser.getIntValue();
             return switch (successValue) {
                 case 1 -> true;
@@ -157,7 +158,6 @@ public class Home {
                 throws IOException, JacksonException {
             ObjectMapper objectMapper = (ObjectMapper) jsonParser.getCodec();
             JsonNode node = objectMapper.readTree(jsonParser);
-
             if(node.isArray()){
                 List<Element> activities = new ArrayList<>();
                 for(final JsonNode array_filed: node){
@@ -174,23 +174,6 @@ public class Home {
         }
     }
 
-    public static class TimeStampToLocalDateTimeDeserializer extends StdDeserializer<LocalDateTime>{
-
-        public TimeStampToLocalDateTimeDeserializer(){
-            this(null);
-        }
-
-        public TimeStampToLocalDateTimeDeserializer(Class<?> vc) {
-            super(vc);
-        }
-
-        @Override
-        public LocalDateTime deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException, JacksonException {
-            String timestamp = jsonParser.getText().trim();
-            long milliseconds = Long.parseLong(timestamp);
-            return Instant.ofEpochMilli(milliseconds).atZone(ZoneId.systemDefault()).toLocalDateTime();
-        }
-    }
 
     @ToString
     @Getter
@@ -221,11 +204,15 @@ public class Home {
         @JsonDeserialize(using = ActivitiesDeserializer.class)
         private Element activities;
         @JsonProperty("timestamp")
-        @JsonDeserialize(using = TimeStampToLocalDateTimeDeserializer.class)
-        private LocalDateTime activity_time;
+        private long activityTimestamp;
 
-        public static BuySellSignal extractBuySellSignalFromHTML(Element element){
-                Element body = element.getElementsByTag("body").get(0);
+        public static BuySellSignal extractBuySellSignalFromHTML(Element element, long activity_time){
+                Optional<Element> elementChecker = Optional.ofNullable(element);
+
+                if(elementChecker.isEmpty()){
+                    return null;
+                }
+                Element body = elementChecker.get().getElementsByTag("body").get(0);
 
                 String escape = HTMLUtils.escapeHTML(body.toString());
                 String cleaned = HTMLUtils.cleanSlashesFromHTML(escape);
@@ -253,10 +240,12 @@ public class Home {
                             .author(author)
                             .msg(message)
                             .price(price)
+                            .timeStamp(activity_time)
                             .signal(command.getSignal())
                             .build();
                 }else{
-                    throw new RuntimeException("Unrecognized activity");
+                    System.out.println("unrecognized activity: " + message);
+                    return null;
                 }
         }
     }
@@ -300,7 +289,13 @@ public class Home {
         private double price;
         private String msg;
         private Signal signal;
+        private long timeStamp;
+
+        public static Comparator<BuySellSignal> comparator = (BuySellSignal prev, BuySellSignal current) -> {
+            return 1;
+        };
     }
+
 
     @Builder
     @Getter
@@ -493,10 +488,15 @@ public class Home {
         }
     }
 
-    @AllArgsConstructor
     @Getter
     private static class Fetcher{
+        private ConcurrentHashMap<Integer, Thread> item_thread = new ConcurrentHashMap<>();
+
         private final HttpClient client;
+
+        public Fetcher(HttpClient client) {
+            this.client = client;
+        }
 
         public Optional<ItemPriceHistogram> getItemPriceHistogram(RequestObject requestObject){
             HttpClient client = this.client;
@@ -550,45 +550,74 @@ public class Home {
             }
             return Optional.empty();
         }
-        // TODO add notification criteria
 
-        /**
-         *
-         */
-        public Runnable snipeItemActivity(RequestObject requestObject, SnipeCriteria snipeCriteria, Notifier notifier){
-                return () -> {
-                    while(true){
-                        URI endpoint_uri = EndpointUtils.buildURIForRequestObject(requestObject, SteamEndpoints.ITEM_ACTIVITY);
-                        System.out.println(endpoint_uri);
-                        HttpRequest hitEndpointForCheckingActions = HttpRequest.newBuilder()
-                                .GET()
-                                .uri(endpoint_uri)
-                                .build();
-                        try{
-                            HttpResponse<String> response = this.client.send(hitEndpointForCheckingActions, HttpResponse.BodyHandlers.ofString());
-                            int responseStatus = response.statusCode();
+        public BuySellSignal tryToGetSignal(RequestObject requestObject){
+            URI endpoint_uri = EndpointUtils.buildURIForRequestObject(requestObject, SteamEndpoints.ITEM_ACTIVITY);
 
-                            if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
-                                String jsonBody = response.body();
+            HttpRequest hitEndpointForCheckingActions = HttpRequest.newBuilder()
+                    .GET()
+                    .uri(endpoint_uri)
+                    .build();
+            try{
+                HttpResponse<String> response = this.client.send(hitEndpointForCheckingActions, HttpResponse.BodyHandlers.ofString());
+                int responseStatus = response.statusCode();
 
-                                ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
-                                ActivityForItem activityForItem = objectMapper.readValue(jsonBody, ActivityForItem.class);
-                                BuySellSignal buySellSignals = ActivityForItem.extractBuySellSignalFromHTML(activityForItem.getActivities());
+                if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
 
-                                boolean should_notify = snipeCriteria.getActivityCallback()
-                                        .test(buySellSignals);
-                                if(should_notify){
-                                    notifier.notifyMe(buySellSignals);
-                                }
-                            }else{
-                                System.out.println("server responded with status: " + responseStatus);
-                            }
-                        }catch (IOException | InterruptedException e){
-                            e.printStackTrace();
-                        }
-                    }
-                };
+                    String jsonBody = response.body();
+
+                    ObjectMapper objectMapper = ObjectMapperConfig.getObjectMapper();
+                    ActivityForItem activityForItem = objectMapper.readValue(jsonBody, ActivityForItem.class);
+
+                    long activityTimestamp = activityForItem.getActivityTimestamp();
+
+                    return ActivityForItem.extractBuySellSignalFromHTML(activityForItem.getActivities(),activityTimestamp);
+
+                }else{
+                    throw new RuntimeException("server responded with "+responseStatus+" status");
+                }
+            }catch (IOException | InterruptedException e){
+                e.printStackTrace();
+            }
+            return null;
         }
+
+        public CompletableFuture<BuySellSignal> tryToGetSignalAsync(RequestObject requestObject){
+            return CompletableFuture.supplyAsync(() -> this.tryToGetSignal(requestObject));
+        }
+        public Runnable tryToGetSignalDistinct(RequestObject requestObject, SnipeCriteria snipeCriteria, Notifier notifier) {
+            return () -> {
+                long prevResponseTimestamp = 0;
+                item_thread.putIfAbsent(requestObject.getItemNameId(), Thread.currentThread());
+
+                while (!Thread.currentThread().isInterrupted()) {
+                    try{
+                        Thread.sleep(300);
+                    }catch (InterruptedException e){
+                        e.printStackTrace();
+                    }
+                    BuySellSignal buySellSignal = this.tryToGetSignal(requestObject);
+                    if(buySellSignal == null){
+                        continue;
+                    }
+                    if (prevResponseTimestamp == 0) {
+                        prevResponseTimestamp = buySellSignal.getTimeStamp();
+                    } else {
+                        long currentDateResponse = buySellSignal.getTimeStamp();
+                        if (currentDateResponse == prevResponseTimestamp) {
+                            continue;
+                        }
+                        prevResponseTimestamp = buySellSignal.getTimeStamp();
+                    }
+                    boolean should_notify = snipeCriteria.getActivityCallback()
+                            .test(buySellSignal);
+                    if (should_notify) {
+                        notifier.notifyMe(buySellSignal);
+                    }
+                }
+            };
+        }
+
         public void startSniping(ExecutorService executorService, Map<Integer, SnipeCriteria> itemsWithCriteria, Notifier notifier){
             for(Map.Entry<Integer, SnipeCriteria> snipe: itemsWithCriteria.entrySet()){
                 RequestObject requestObject = new RequestObject.RequestObjectBuilder()
@@ -597,12 +626,13 @@ public class Home {
                         .language(RequestObject.Country.PL.getLanguageForCountry())
                         .currency(RequestObject.Currency.PL.getCurrencyCode())
                         .build();
-                executorService.submit(this.snipeItemActivity(requestObject, snipe.getValue(), notifier));
+                executorService.submit(this.tryToGetSignalDistinct(requestObject, snipe.getValue(), notifier));
             }
         }
     }
     public static void main(String[] args) {
         HttpClient simpleClient = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.ALWAYS)
                 .build();
 
         Fetcher fetcher = new Fetcher(simpleClient);
@@ -612,13 +642,12 @@ public class Home {
                         .activityCallback(new Predicate<BuySellSignal>() {
                             @Override
                             public boolean test(BuySellSignal buySellSignal) {
-                                return Signal.BUY.equals(buySellSignal.getSignal()) ||
-                                        Signal.SELL.equals(buySellSignal.getSignal());
+                                return true;
                             }
                         }).build());
 
-        fetcher.startSniping(Executors.newCachedThreadPool(), snipeCriteriaMap, notifier);
+        fetcher.startSniping(Executors.newSingleThreadExecutor(), snipeCriteriaMap, notifier);
 
-        //TODO check if current request is equal to previous request
+
     }
 }
