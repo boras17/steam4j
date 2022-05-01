@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 public class Home {
 
     public enum Command{
-        SOMEBODY_BUYS(Pattern.compile("(tworzy zlecenia kupna ([0-9]{0,}) za [0-9]{0,99},[0-9]{0,99}zł)"), Signal.SELL),
+        SOMEBODY_BUYS(Pattern.compile("(tworzy zlecenia kupna \\([0-9]{0,}\\) za [0-9]{0,99},[0-9]{0,99}zł)"), Signal.SELL),
         UNRECOGNIZED_COMMAND(null, null),
         SOMEBODY_SELLS(Pattern.compile("(wystawia ten przedmiot na sprzedaż za [0-9]{0,99},[0-9]{0,99}[a-zA-Z]{0,99})"), Signal.BUY);
 
@@ -87,7 +87,6 @@ public class Home {
 
         @Override
         public Boolean deserialize(JsonParser jsonParser, DeserializationContext deserializationContext) throws IOException {
-            System.out.println();
             int successValue = jsonParser.getIntValue();
             return switch (successValue) {
                 case 1 -> true;
@@ -244,7 +243,9 @@ public class Home {
                             .signal(command.getSignal())
                             .build();
                 }else{
-                    System.out.println("unrecognized activity: " + message);
+                    if (!(message.isEmpty() | message.isBlank())){
+                        System.out.println("unrecognized activity: " + message);
+                    }
                     return null;
                 }
         }
@@ -290,10 +291,6 @@ public class Home {
         private String msg;
         private Signal signal;
         private long timeStamp;
-
-        public static Comparator<BuySellSignal> comparator = (BuySellSignal prev, BuySellSignal current) -> {
-            return 1;
-        };
     }
 
 
