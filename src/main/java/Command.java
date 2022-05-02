@@ -11,8 +11,12 @@ public enum Command{
 
     Command(Pattern pattern, Signal signal) {this.pattern = pattern; this.signal = signal;}
 
-    public Pattern getPattern() {return this.pattern;}
-    public Signal getSignal() {return this.signal;}
+    public Pattern getPattern() {
+        return this.pattern;
+    }
+    public Signal getSignal() {
+        return this.signal;
+    }
 
     public static Command calculate(String text){
         Pattern buy_pattern = SOMEBODY_BUYS.getPattern();

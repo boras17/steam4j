@@ -1,23 +1,20 @@
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import exceptions.CaptchaRequiredException;
 import lombok.*;
 
-import javax.crypto.Cipher;
-import javax.crypto.NoSuchPaddingException;
 import java.io.IOException;
 import java.math.BigInteger;
+import java.net.CookieManager;
+import java.net.CookieStore;
+import java.net.HttpCookie;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.security.*;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.RSAPublicKeySpec;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.Map;
+import java.util.*;
 
 @Getter
 @Setter
@@ -25,6 +22,7 @@ public class SteamLogin {
     private String username;
     private String password;
     private HttpClient client;
+    private List<HttpCookie> loginExtractedCookies;
 
     @NoArgsConstructor
     @ToString
@@ -45,13 +43,13 @@ public class SteamLogin {
     @Getter
     @Setter
     private static class LoginRequest{
-        private long doNotCache;
+        private String doNotCache;
         private String encryptedPassword;
         private String username;
         private String twoFactorCode;
         private String emailAuth;
         private String loginFriendlyName;
-        private int captchaGid;
+        private long captchaGid;
         private String captchaText;
         private String emailSteamId;
         private long rsaTimestamp;
@@ -107,6 +105,7 @@ public class SteamLogin {
         this.username = username;
         this.password = password;
         this.client = client;
+        this.loginExtractedCookies = new ArrayList<>();
     }
 
     public SteamLogin(String username, String password){
@@ -219,7 +218,7 @@ public class SteamLogin {
         return encoder.encodeToString(bytes);
     }
 
-    public void login(){
+    public List<HttpCookie> extractCookie() throws CaptchaRequiredException{
         Map<String, Object> encryptionData = this.getEncryptedPasswordBase64();
         if(encryptionData!=null){
             boolean encryptionDataContainsPassword = encryptionData.containsKey("password");
@@ -229,16 +228,17 @@ public class SteamLogin {
                 String encryptedPassword = (String)encryptionData.get("password");
                 RSAResponse response = (RSAResponse)encryptionData.get("rsaResponse");
                 LoginRequest loginRequest = LoginRequest.builder()
-                        .encryptedPassword(encryptedPassword)
+                        .encryptedPassword(EndpointUtils.encodeStringToUrlStandard(encryptedPassword))
                         .username(this.getUsername())
                         .emailSteamId("")
                         .loginFriendlyName("")
                         .emailAuth("")
                         .rememberLogin(false)
+                        .captchaText("")
                         .twoFactorCode("")
                         .emailSteamId("")
                         .rsaTimestamp(response.getTimestamp())
-                        .doNotCache(Instant.now().getNano() * 1000L)
+                        .doNotCache(Long.toString(System.currentTimeMillis()))
                         .captchaGid(-1)
                         .build();
 
@@ -256,6 +256,7 @@ public class SteamLogin {
                 HttpResponse.BodyHandler<String> responseBodyHandler = HttpResponse.BodyHandlers.ofString();
                 try{
                     HttpResponse<String> loginAttemptResponse = this.client.send(request, responseBodyHandler);
+                    System.out.println(loginAttemptResponse.body());
                     int responseStatus = loginAttemptResponse.statusCode();
                     if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
                         String jsonBody = loginAttemptResponse.body();
@@ -265,25 +266,52 @@ public class SteamLogin {
 
                         boolean success = loginAttemptResult.isSuccess();
                         boolean captchaNeeded = loginAttemptResult.isCaptchaNeeded();
-
+                        System.out.println(loginAttemptResponse);
                         if(success){
-                            System.out.println("success: ");
+                            boolean cookieHandlerPresent = this.client.cookieHandler().isPresent();
+                            if(cookieHandlerPresent){
+                                CookieManager cookieManager = (CookieManager)this.client.cookieHandler().get();
+                                CookieStore cookieStore = cookieManager.getCookieStore();
+                                List<HttpCookie> cookieList = cookieStore.getCookies();
+                                return cookieList;
+                            }
                         }else if(captchaNeeded){
                             String captchaGid = loginAttemptResult.getCaptchaGid();
-                            System.out.println(URI.create("https://steamcommunity.com/public/captcha.php?gid=".concat(captchaGid)));
+                            throw new CaptchaRequiredException("https://steamcommunity.com/public/captcha.php?gid=".concat(captchaGid));
                         }
                     }
                 }catch (InterruptedException | IOException e){
                     e.printStackTrace();
                 }
-
             }else{
                 throw new RuntimeException("Error occurend when encrypting password");
             }
-
-
         }
-
+        return null;
     }
+
+    private Optional<HttpCookie> getCookieByName(String requiredCookieName, List<HttpCookie> cookieList){
+        return cookieList.stream()
+                .filter(cookie -> {
+                    String cookieName = cookie.getName();
+                    return requiredCookieName.equals(cookieName);
+                }).findFirst();
+    }
+
+    public String getLoginCookieValue() throws CaptchaRequiredException {
+        /*
+
+        boolean cookiePresent = loginCookieOptional.isPresent();
+        if(cookiePresent){
+            HttpCookie cookie = loginCookieOptional.get();
+            return cookie.getValue();
+        }
+        throw new ExtractingLoginCookieFailed("Login cookie attempt failed");
+         */
+
+        return null;
+    }
+
+
 
 }

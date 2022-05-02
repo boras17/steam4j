@@ -1,9 +1,14 @@
+import exceptions.CaptchaRequiredException;
+
+import java.net.CookieManager;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.util.concurrent.*;
 import java.util.function.Predicate;
 
 public class Home {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws CaptchaRequiredException {
         /*
 
         HttpClient simpleClient = HttpClient.newBuilder()
@@ -30,6 +35,6 @@ public class Home {
         fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
          */
         SteamLogin steamLogin = new SteamLogin("gjob7", "Mikoborecki1@");
-        steamLogin.login();
+        steamLogin.extractCookie();
     }
 }
