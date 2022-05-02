@@ -1,14 +1,12 @@
-import lombok.Builder;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.util.function.Predicate;
 
-@Builder
+@AllArgsConstructor
 @Getter
 @Setter
 public  class SnipeCriteria{
     private Predicate<BuySellSignal> activityCallback;
-    private double requiredSellPrice;
-    private double requiredBuyPrice;
 }
