@@ -29,8 +29,7 @@ public class Home {
 
         fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
          */
-        SteamLogin steamLogin = new SteamLogin("daenez1", "mikoborecki1");
-        String base64Password = steamLogin.getEncryptedPasswordBase64();
-        System.out.println(base64Password);
+        SteamLogin steamLogin = new SteamLogin("gjob7", "Mikoborecki1@");
+        steamLogin.login();
     }
 }
