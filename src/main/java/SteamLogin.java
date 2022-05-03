@@ -1,8 +1,13 @@
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import exceptions.CaptchaRequiredException;
+import exceptions.CouldNotFindSteamGuardException;
 import lombok.*;
+import mail.*;
 
+import javax.mail.*;
+import javax.mail.internet.InternetAddress;
+import javax.mail.search.FlagTerm;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.net.CookieManager;
@@ -13,8 +18,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.*;
+import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Getter
 @Setter
@@ -23,6 +30,7 @@ public class SteamLogin {
     private String password;
     private HttpClient client;
     private List<HttpCookie> loginExtractedCookies;
+    private EmailService emailService;
 
     @NoArgsConstructor
     @ToString
@@ -112,6 +120,10 @@ public class SteamLogin {
         this(username, password, HttpClient.newBuilder()
                 .followRedirects(HttpClient.Redirect.ALWAYS)
                 .build());
+    }
+    public SteamLogin(String username, String password, EmailConfiguration emailConfiguration){
+        this(username, password);
+        this.emailService = new SteamGuardEmailService(emailConfiguration);
     }
 
     private String tryToExtractSessionCookie(){
@@ -218,15 +230,43 @@ public class SteamLogin {
         return encoder.encodeToString(bytes);
     }
 
-    public List<HttpCookie> extractCookie() throws CaptchaRequiredException{
+    private LoginAttemptResult sendDoLoginRequest(LoginRequest loginRequest) {
+        URI loginEndpoint = URI.create(SteamEndpoints.DO_LOGIN_ENDPOINT);
+        String urlEncodedStr = LoginRequest.convertToUrlEncoded(loginRequest);
+
+        HttpRequest.BodyPublisher formUrlEncodedPublisher = HttpRequest.BodyPublishers.ofString(urlEncodedStr);
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .setHeader(HttpConstants.CONTENT_TYPE,HttpConstants.FORM_URL_ENCODED_HEADER_VALUE)
+                .uri(loginEndpoint)
+                .POST(formUrlEncodedPublisher)
+                .build();
+
+        HttpResponse.BodyHandler<String> responseBodyHandler = HttpResponse.BodyHandlers.ofString();
+        try{
+            HttpResponse<String> loginAttemptResponse = this.client.send(request, responseBodyHandler);
+            System.out.println(loginAttemptResponse.body());
+            int responseStatus = loginAttemptResponse.statusCode();
+            if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
+                String jsonBody = loginAttemptResponse.body();
+                ObjectMapper objectMapperConfig = ObjectMapperConfig.getObjectMapper();
+                return objectMapperConfig.readValue(jsonBody, LoginAttemptResult.class);
+            }
+        }catch (InterruptedException | IOException e){
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+    public List<HttpCookie> extractCookie() throws CaptchaRequiredException {
         Map<String, Object> encryptionData = this.getEncryptedPasswordBase64();
-        if(encryptionData!=null){
+        if (encryptionData != null) {
             boolean encryptionDataContainsPassword = encryptionData.containsKey("password");
             boolean encryptionDataContainsRsaResponse = encryptionData.containsKey("rsaResponse");
 
-            if(encryptionDataContainsPassword && encryptionDataContainsRsaResponse){
-                String encryptedPassword = (String)encryptionData.get("password");
-                RSAResponse response = (RSAResponse)encryptionData.get("rsaResponse");
+            if (encryptionDataContainsPassword && encryptionDataContainsRsaResponse) {
+                String encryptedPassword = (String) encryptionData.get("password");
+                RSAResponse response = (RSAResponse) encryptionData.get("rsaResponse");
                 LoginRequest loginRequest = LoginRequest.builder()
                         .encryptedPassword(EndpointUtils.encodeStringToUrlStandard(encryptedPassword))
                         .username(this.getUsername())
@@ -241,55 +281,64 @@ public class SteamLogin {
                         .doNotCache(Long.toString(System.currentTimeMillis()))
                         .captchaGid(-1)
                         .build();
+                try {
+                    LoginAttemptResult loginAttemptResult = this.sendDoLoginRequest(loginRequest);
+                    System.out.println(loginAttemptResult);
+                    boolean success = loginAttemptResult.isSuccess();
+                    boolean captchaNeeded = loginAttemptResult.isCaptchaNeeded();
+                    boolean emailAuthNeeded = loginAttemptResult.isEmailAuthNeeded();
 
-                URI loginEndpoint = URI.create(SteamEndpoints.DO_LOGIN_ENDPOINT);
-                String urlEncodedStr = LoginRequest.convertToUrlEncoded(loginRequest);
-
-                HttpRequest.BodyPublisher formUrlEncodedPublisher = HttpRequest.BodyPublishers.ofString(urlEncodedStr);
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .setHeader(HttpConstants.CONTENT_TYPE,HttpConstants.FORM_URL_ENCODED_HEADER_VALUE)
-                        .uri(loginEndpoint)
-                        .POST(formUrlEncodedPublisher)
-                        .build();
-
-                HttpResponse.BodyHandler<String> responseBodyHandler = HttpResponse.BodyHandlers.ofString();
-                try{
-                    HttpResponse<String> loginAttemptResponse = this.client.send(request, responseBodyHandler);
-                    System.out.println(loginAttemptResponse.body());
-                    int responseStatus = loginAttemptResponse.statusCode();
-                    if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
-                        String jsonBody = loginAttemptResponse.body();
-                        ObjectMapper objectMapperConfig = ObjectMapperConfig.getObjectMapper();
-                        LoginAttemptResult loginAttemptResult
-                                = objectMapperConfig.readValue(jsonBody, LoginAttemptResult.class);
-
-                        boolean success = loginAttemptResult.isSuccess();
-                        boolean captchaNeeded = loginAttemptResult.isCaptchaNeeded();
-                        System.out.println(loginAttemptResponse);
-                        if(success){
-                            boolean cookieHandlerPresent = this.client.cookieHandler().isPresent();
-                            if(cookieHandlerPresent){
-                                CookieManager cookieManager = (CookieManager)this.client.cookieHandler().get();
-                                CookieStore cookieStore = cookieManager.getCookieStore();
-                                List<HttpCookie> cookieList = cookieStore.getCookies();
-                                return cookieList;
-                            }
-                        }else if(captchaNeeded){
-                            String captchaGid = loginAttemptResult.getCaptchaGid();
-                            throw new CaptchaRequiredException("https://steamcommunity.com/public/captcha.php?gid=".concat(captchaGid));
+                    if (success) {
+                        boolean cookieHandlerPresent = this.client.cookieHandler().isPresent();
+                        if (cookieHandlerPresent) {
+                            CookieManager cookieManager = (CookieManager) this.client.cookieHandler().get();
+                            CookieStore cookieStore = cookieManager.getCookieStore();
+                            List<HttpCookie> cookieList = cookieStore.getCookies();
+                            return cookieList;
+                        }
+                    } else if (captchaNeeded) {
+                        String captchaGid = loginAttemptResult.getCaptchaGid();
+                        throw new CaptchaRequiredException("https://steamcommunity.com/public/captcha.php?gid=".concat(captchaGid));
+                    } else if (emailAuthNeeded) {
+                        try {
+                            String code = this.getTwoFactorCode();
+                            loginRequest.setEmailAuth(code);
+                            LoginAttemptResult result_with_token_guard = this.sendDoLoginRequest(loginRequest);
+                            System.out.println(result_with_token_guard);
+                        } catch (exceptions.CouldNotFindSteamGuardException | MessagingException e) {
+                            e.printStackTrace();
                         }
                     }
-                }catch (InterruptedException | IOException e){
+                }catch(IOException e){
                     e.printStackTrace();
                 }
-            }else{
-                throw new RuntimeException("Error occurend when encrypting password");
-            }
+        } else {
+            throw new RuntimeException("Error occurend when encrypting password");
+        }
+
         }
         return null;
     }
-
+    public String getTwoFactorCode() throws MessagingException,
+                                            CouldNotFindSteamGuardException,
+                                            IOException {
+        EmailService emailService = this.emailService;
+        Message[] messages = emailService.findEmail(new FlagTerm(new Flags(Flags.Flag.SEEN), false));
+        Message steamGuardMessage = Arrays.stream(messages).filter(message -> {
+            try {
+                return InternetAddress.toString(message.getFrom()).contains("noreply@steampowered.com");
+            } catch (MessagingException e) {
+                e.printStackTrace();
+                return false;
+            }
+        }).findFirst().orElseThrow(() -> new CouldNotFindSteamGuardException("Could not find steam guard code"));
+        String msg = this.emailService.readContentFromEmailAsString(steamGuardMessage);
+        //TODO refreactor this shit
+        Pattern pattern = Pattern.compile("<td.*>\\s*(.{0,5})\\s*</td>");
+        Matcher matcher = pattern.matcher(msg);
+        MatchResult matchResult = matcher.results().toList().get(2);
+        return matchResult.group(1);
+    }
     private Optional<HttpCookie> getCookieByName(String requiredCookieName, List<HttpCookie> cookieList){
         return cookieList.stream()
                 .filter(cookie -> {

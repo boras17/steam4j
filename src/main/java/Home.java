@@ -1,5 +1,11 @@
 import exceptions.CaptchaRequiredException;
+import exceptions.CouldNotFindSteamGuardException;
+import mail.EmailConfiguration;
+import mail.EmailConfigurationFactory;
+import mail.EmailCredentials;
 
+import javax.mail.MessagingException;
+import java.io.IOException;
 import java.net.CookieManager;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -8,7 +14,7 @@ import java.util.concurrent.*;
 import java.util.function.Predicate;
 
 public class Home {
-    public static void main(String[] args) throws CaptchaRequiredException {
+    public static void main(String[] args) throws CaptchaRequiredException, MessagingException, CouldNotFindSteamGuardException, IOException {
         /*
 
         HttpClient simpleClient = HttpClient.newBuilder()
@@ -34,7 +40,8 @@ public class Home {
 
         fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
          */
-        SteamLogin steamLogin = new SteamLogin("gjob7", "Mikoborecki1@");
+        EmailConfiguration emailConfiguration = EmailConfigurationFactory.defaultWpImapConfiguration(new EmailCredentials("mikolaj48910@wp.pl", "mikolajborek2013"));
+        SteamLogin steamLogin = new SteamLogin("gjob7", "Mikoborecki1@", emailConfiguration);
         steamLogin.extractCookie();
     }
 }
