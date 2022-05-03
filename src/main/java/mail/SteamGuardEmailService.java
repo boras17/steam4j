@@ -4,6 +4,7 @@ import javax.mail.*;
 import javax.mail.search.SearchTerm;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -48,8 +49,9 @@ public class SteamGuardEmailService implements EmailService{
 
             for (int i = 0; i < partsSize; i++) {
                 BodyPart part = multipart.getBodyPart(i);
-                String type = part.getContentType();
-                if(type.contains("text/html")){
+                String partType = part.getContentType();
+                System.out.println(partType);
+                if(partType.toLowerCase(Locale.ROOT).contains("text/html")){
                     String data = (String) part.getContent();
                     result.append(data);
                 }
