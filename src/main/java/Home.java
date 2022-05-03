@@ -3,6 +3,7 @@ import exceptions.CouldNotFindSteamGuardException;
 import mail.EmailConfiguration;
 import mail.EmailConfigurationFactory;
 import mail.EmailCredentials;
+import steam.SteamLogin;
 
 import javax.mail.MessagingException;
 import java.io.IOException;
@@ -15,22 +16,22 @@ public class Home {
                 .followRedirects(HttpClient.Redirect.ALWAYS)
                 .build();
 
-        SteamMarketplace fetcher = new SteamMarketplace(simpleClient);
+        steam.SteamMarketplace fetcher = new steam.SteamMarketplace(simpleClient);
 
-        fetcher.setFetchingCountry(RequestObject.Country.PL);
+        fetcher.setFetchingCountry(model.RequestObject.Country.PL);
 
-        fetcher.addSnipedItem(new ItemSnipingData.ItemSnipingDataBuilder()
+        fetcher.addSnipedItem(new model.ItemSnipingData.ItemSnipingDataBuilder()
                 .itemNameId(14962905)
                 .breakTimeBetweenRequestsInMillis(100)
-                .snipeCriteria(new SnipeCriteria(new Predicate<BuySellSignal>() {
+                .snipeCriteria(new model.SnipeCriteria(new Predicate<model.BuySellSignal>() {
                             @Override
-                            public boolean test(BuySellSignal buySellSignal) {
+                            public boolean test(model.BuySellSignal buySellSignal) {
 
                                 return true;
                             }
                         })).build());
 
-        Notifier notifier = new Notifier(new EmailNotificationStrategy());
+        notification.Notifier notifier = new notification.Notifier(new mail.EmailNotificationStrategy());
 
         fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
          */

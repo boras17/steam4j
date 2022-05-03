@@ -1,5 +1,0 @@
-enum Signal{
-    SELL,
-    BUY
-}
-
