@@ -1,4 +1,12 @@
-# java-steam-marektplac-library
+# steam marketplace library
+
+# Usage examples
+
+Sniping steam marekt actions:
+  First you have to create new instance of java 11 HttpClient:
+ HttpClient simpleClient = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.ALWAYS)
+                .build();
 
 TODO:
   Refractor RSA hashing class for for steam password
