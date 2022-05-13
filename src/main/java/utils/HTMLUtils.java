@@ -2,7 +2,7 @@ package utils;
 
 import java.util.Map;
 
-class HTMLUtils{
+public class HTMLUtils{
     private static Map<String, String> escapes = Map.of("&quot;","", "&amp;","&","&lt;","<","&gt;",">");
 
     public static String escapeHTML(String html){

@@ -1,9 +1,18 @@
 package steam;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import config.ObjectMapperConfig;
+import constants.SteamEndpoints;
+import model.*;
+import notification.Notifier;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import steamenums.Country;
+import steamenums.Game;
+import steamenums.ResponseStatusCompartment;
+import utils.EndpointUtils;
+import utils.URLBuilder;
 
 import java.io.IOException;
 import java.net.URI;
@@ -22,7 +31,7 @@ public class SteamMarketplace {
 
         private ConcurrentHashMap<Integer, Thread> itemThread = new ConcurrentHashMap<>();
         private CopyOnWriteArrayList<ItemSnipingData> snipedItems = new CopyOnWriteArrayList<>();
-        private RequestObject.Country country;
+        private Country country;
 
         private final HttpClient client;
 
@@ -30,7 +39,7 @@ public class SteamMarketplace {
             this.client = client;
         }
 
-        public void setFetchingCountry(RequestObject.Country country){
+        public void setFetchingCountry(Country country){
             this.country = country;
         }
 

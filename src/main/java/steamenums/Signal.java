@@ -1,6 +1,6 @@
 package steamenums;
 
-enum Signal{
+public enum Signal{
     SELL,
     BUY
 }

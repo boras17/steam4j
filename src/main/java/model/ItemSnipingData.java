@@ -7,6 +7,7 @@ import lombok.Setter;
 @Getter
 @Setter
 @Builder
+public
 class ItemSnipingData{
     private int breakTimeBetweenRequestsInMillis;
     private int itemNameId;

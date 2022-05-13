@@ -1,6 +1,6 @@
 package steamenums;
 
-enum Game{
+public enum Game{
     COUNTER_STRIKE(730);
 
     private final int game_id;

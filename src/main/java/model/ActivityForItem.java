@@ -10,6 +10,8 @@ import lombok.Setter;
 import lombok.ToString;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Element;
+import steamenums.Command;
+import utils.HTMLUtils;
 
 import java.util.Optional;
 import java.util.regex.Matcher;

@@ -5,7 +5,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-class URLBuilder{
+public class URLBuilder{
     private Map<String, Object> params = new LinkedHashMap<>();
     private StringBuilder baseURL;
 
