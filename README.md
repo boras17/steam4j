@@ -66,7 +66,7 @@ then in order to regsiter this notifier and start sniping item call:
 fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
 ```
 where first parameter is ExecutorService
-TODO:
+In progress:
   Refractor RSA hashing class for for steam password
   Service for making steam trading requests
   refractor SteamLogin(steam guard code fetcher move to email service)
