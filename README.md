@@ -65,6 +65,23 @@ then in order to regsiter this notifier and start sniping item call:
 ```java 
 fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
 ```
+#Logi in
+In order to request secured steam endpoints you have to create sessionClient for this requests, you can do this via SteamLogin class lik below:
+```java
+SteamLogin steamLogin = new StreamLogin(username, password);
+steamLogin.login();
+
+String steamId = steamLogin.getUserId();
+HttpClient sessionClient = steamLogin.getSessionClient();
+```
+And that is all you need but if you want to handle steam guard tokens on your email then pass your email configuration into constructor as third parameter:
+SteamLogin(username, password, emailConfiguration)
+you can simply create email configuration with EmailConfigurationFactory. 
+Example:
+```java
+EmailCredentials credentials = new EmailCredentials(email, password);
+EmailConfigurationFactory.defaultGmailImapConfiguration(credentials);
+```
 where first parameter is ExecutorService
 In progress:
   Refractor RSA hashing class for for steam password
