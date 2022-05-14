@@ -25,19 +25,19 @@ Sniping steam marekt actions:
 Optional<ItemPriceHistogram> itemPriceHistogramOptional = steamMarketplace.getItemPriceHistogram(RequestObject.builder()
                         .countryCode(Country.PL.getCountryCode())
                         .currency(Currency.PL.getCurrencyCode())
-                        .itemNameId(123123)
-                        .build());
-                        
+                        .language(Country.PL.getLanguageForCountry())
+                        .itemNameId(176288467)
+                .build());
 itemPriceHistogramOptional.ifPresent(data -> {
-            double highest = data.getHighestPrice();
-            double lowest = data.getLowestPrice();
-            data.getHistoricalPriceData()
-                    .forEach(historical_price -> {
-                        double price = historical_price.getPrice();
-                        int sold_amount = historical_price.getSoldAmount();
-                        String soldInfo = historical_price.getSoldInfo();
-                    });
-        });
+  double highest = data.getHighestPrice();
+  double lowest = data.getLowestPrice();
+  data.getHistoricalPriceData()
+          .forEach(historical_price -> {
+              double price = historical_price.getPrice();
+              int sold_amount = historical_price.getSoldAmount();
+              String soldInfo = historical_price.getSoldInfo();
+          });
+});
   
 ```
   # Quick tutorial how to get item name
