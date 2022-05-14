@@ -18,6 +18,28 @@ Sniping steam marekt actions:
  Optional<Integer> itemNameIdOptional = fetcher.getItemNameIdByItemName("Mann Co. Supply Crate Key", Game.COUNTER_STRIKE);
   ```
   first parameter represents item name and second parameter is enum which represents specified game related with item.
+  
+  # Historical data
+  Example without authentication:
+```java 
+Optional<ItemPriceHistogram> itemPriceHistogramOptional = steamMarketplace.getItemPriceHistogram(RequestObject.builder()
+                        .countryCode(Country.PL.getCountryCode())
+                        .currency(Currency.PL.getCurrencyCode())
+                        .itemNameId(123123)
+                        .build());
+                        
+itemPriceHistogramOptional.ifPresent(data -> {
+            double highest = data.getHighestPrice();
+            double lowest = data.getLowestPrice();
+            data.getHistoricalPriceData()
+                    .forEach(historical_price -> {
+                        double price = historical_price.getPrice();
+                        int sold_amount = historical_price.getSoldAmount();
+                        String soldInfo = historical_price.getSoldInfo();
+                    });
+        });
+  
+```
   # Quick tutorial how to get item name
   Firstly go to the stem market place and select specified item. You will see URL like this one: 
   https://steamcommunity.com/market/listings/440/Mann%20Co.%20Supply%20Crate%20Key
