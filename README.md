@@ -38,7 +38,26 @@ itemPriceHistogramOptional.ifPresent(data -> {
               String soldInfo = historical_price.getSoldInfo();
           });
 });
-  
+Price history with session authenticated client: 
+AuthenticatedMarketplaceData steamMarketplace = new AuthenticatedMarketplaceData(sessionClient);
+        
+steamMarketplace.getItemPriceHistory(Game.COUNTER_STRIKE, "Nova | Sand Dune (Field-Tested)")
+        .ifPresent(new Consumer<PriceHistory>() {
+            @Override
+            public void accept(PriceHistory priceHistory) {
+                priceHistory.getTicks()
+                        .forEach(new Consumer<PriceHistoryTick>() {
+                            @Override
+                            public void accept(PriceHistoryTick priceHistoryTick) {
+                                System.out.println("----------------------------");
+                                System.out.println("price: " + priceHistoryTick.getPrice());
+                                System.out.println("date: " + priceHistoryTick.getDate());
+                                System.out.println("----------------------------");
+                                System.out.println();
+                            }
+                        });
+            }
+        });
 ```
   # Quick tutorial how to get item name
   Firstly go to the stem market place and select specified item. You will see URL like this one: 
