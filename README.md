@@ -38,7 +38,9 @@ itemPriceHistogramOptional.ifPresent(data -> {
               String soldInfo = historical_price.getSoldInfo();
           });
 });
+```
 Price history with session authenticated client: 
+```java
 AuthenticatedMarketplaceData steamMarketplace = new AuthenticatedMarketplaceData(sessionClient);
         
 steamMarketplace.getItemPriceHistory(Game.COUNTER_STRIKE, "Nova | Sand Dune (Field-Tested)")
