@@ -18,6 +18,49 @@ Sniping steamservices marekt actions:
  Optional<Integer> itemNameIdOptional = fetcher.getItemNameIdByItemName("Mann Co. Supply Crate Key", Game.COUNTER_STRIKE);
   ```
   first parameter represents item name and second parameter is enum which represents specified game related with item.
+  
+  # Historical data
+  Example without authentication:
+```java 
+Optional<ItemPriceHistogram> itemPriceHistogramOptional = steamMarketplace.getItemPriceHistogram(RequestObject.builder()
+                        .countryCode(Country.PL.getCountryCode())
+                        .currency(Currency.PL.getCurrencyCode())
+                        .language(Country.PL.getLanguageForCountry())
+                        .itemNameId(176288467)
+                .build());
+itemPriceHistogramOptional.ifPresent(data -> {
+  double highest = data.getHighestPrice();
+  double lowest = data.getLowestPrice();
+  data.getHistoricalPriceData()
+          .forEach(historical_price -> {
+              double price = historical_price.getPrice();
+              int sold_amount = historical_price.getSoldAmount();
+              String soldInfo = historical_price.getSoldInfo();
+          });
+});
+```
+Price history with session authenticated client: 
+```java
+AuthenticatedMarketplaceData steamMarketplace = new AuthenticatedMarketplaceData(sessionClient);
+        
+steamMarketplace.getItemPriceHistory(Game.COUNTER_STRIKE, "Nova | Sand Dune (Field-Tested)")
+        .ifPresent(new Consumer<PriceHistory>() {
+            @Override
+            public void accept(PriceHistory priceHistory) {
+                priceHistory.getTicks()
+                        .forEach(new Consumer<PriceHistoryTick>() {
+                            @Override
+                            public void accept(PriceHistoryTick priceHistoryTick) {
+                                System.out.println("----------------------------");
+                                System.out.println("price: " + priceHistoryTick.getPrice());
+                                System.out.println("date: " + priceHistoryTick.getDate());
+                                System.out.println("----------------------------");
+                                System.out.println();
+                            }
+                        });
+            }
+        });
+```
   # Quick tutorial how to get item name
   Firstly go to the stem market place and select specified item. You will see URL like this one: 
   https://steamcommunity.com/market/listings/440/Mann%20Co.%20Supply%20Crate%20Key
@@ -64,6 +107,23 @@ Notifier notifier = new Notifier(new ConsoleNotifier());
 then in order to regsiter this notifier and start sniping item call:
 ```java 
 fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
+```
+#Logi in
+In order to request secured steam endpoints you have to create sessionClient for this requests, you can do this via SteamLogin class lik below:
+```java
+SteamLogin steamLogin = new StreamLogin(username, password);
+steamLogin.login();
+
+String steamId = steamLogin.getUserId();
+HttpClient sessionClient = steamLogin.getSessionClient();
+```
+And that is all you need but if you want to handle steam guard tokens on your email then pass your email configuration into constructor as third parameter:
+SteamLogin(username, password, emailConfiguration)
+you can simply create email configuration with EmailConfigurationFactory. 
+Example:
+```java
+EmailCredentials credentials = new EmailCredentials(email, password);
+EmailConfigurationFactory.defaultGmailImapConfiguration(credentials);
 ```
 where first parameter is ExecutorService
 In progress:
