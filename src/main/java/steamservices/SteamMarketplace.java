@@ -1,4 +1,4 @@
-package steam;
+package steamservices;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import config.ObjectMapperConfig;
@@ -39,6 +39,10 @@ public class SteamMarketplace {
             this.client = client;
         }
 
+        public SteamMarketplace(){
+            this(HttpClient.newBuilder().build());
+        }
+
         public void setFetchingCountry(Country country){
             this.country = country;
         }
@@ -67,9 +71,13 @@ public class SteamMarketplace {
                 return Optional.empty();
             }
         }
+
+
+
+
         public Optional<Integer> getItemNameIdByItemName(String itemName, Game game){
             String item_name_hash = EndpointUtils.encodeStringToUrlStandard(itemName);
-            String item_endpoint = SteamEndpoints.ITEM_ENDPOINT.replace("{gameId}",String.valueOf(game.getGameId()));
+            String item_endpoint = SteamEndpoints.ITEM_NAME_ID_ENDPOINT.replace("{gameId}",String.valueOf(game.getGameId()));
 
             URLBuilder urlBuilder = new URLBuilder();
             urlBuilder.baseUrl(item_endpoint);
@@ -77,14 +85,14 @@ public class SteamMarketplace {
 
             String str_resource_address = urlBuilder.buildStringUrl();
             try{
-                System.out.println(str_resource_address);
+
                 Document itemPage = Jsoup.connect(str_resource_address)
                         .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36")
                         .get();
                 List<Element> scripts = itemPage.body().getElementsByTag("script");
                 Element lastScript = scripts.get(scripts.size()-1);
                 String script_text = lastScript.toString();
-                Pattern pattern = Pattern.compile("ItemActivityTicker.Start\\( ([0-9]*) \\);");
+                Pattern pattern = Pattern.compile("Market_LoadOrderSpread\\( ([0-9]*) \\);");
                 Matcher matcher = pattern.matcher(script_text);
                 if(matcher.find()){
                     String identifier = matcher.group(1);

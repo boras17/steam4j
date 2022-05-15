@@ -45,8 +45,8 @@ public class DeserializeListOfPriceTicks extends StdDeserializer<Set<BuyOrderTic
                 final String tick_additional_info = tickPartsArray[2];
                 final BuyOrderTick buyOrderTick = BuyOrderTick.builder()
                         .price(price)
-                        .sold_amount(sold_amount)
-                        .sold_info(tick_additional_info)
+                        .soldAmount(sold_amount)
+                        .soldInfo(tick_additional_info)
                         .build();
                 buyOrderTicks.add(buyOrderTick);
             }else{

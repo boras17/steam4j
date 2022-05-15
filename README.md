@@ -1,8 +1,8 @@
-# steam marketplace library
+# steamservices marketplace library
 
 # Usage examples
 
-Sniping steam marekt actions:
+Sniping steamservices marekt actions:
   First you have to create new instance of java 11 HttpClient:
   ```java 
  HttpClient simpleClient = HttpClient.newBuilder()
@@ -39,7 +39,7 @@ fetcher.addSnipedItem(ItemSnipingData.builder()
 ```
 addSnipedItem(itemSnipingData) accepts ItemSnipingData object and this class has few important properties which you can specify via builder methods:
 itemNameId(int) - it is just item name id
-breakTimeBetweenRequestsInMillis(long) - accepts long type parameter which represents delay between two different requests to the steam marketplace
+breakTimeBetweenRequestsInMillis(long) - accepts long type parameter which represents delay between two different requests to the steamservices marketplace
 snipeCriteria(SnipeCriteria) - here you can pass SnipeCriteria class where constructor parameter is simple predicate which provide BuySellSignall class 
 and returns true if this signal should be delegated to the notifier. 
 # What is notifier?
@@ -67,6 +67,6 @@ fetcher.startSniping(Executors.newSingleThreadExecutor(), notifier);
 ```
 where first parameter is ExecutorService
 In progress:
-  Refractor RSA hashing class for for steam password
-  Service for making steam trading requests
-  refractor SteamLogin(steam guard code fetcher move to email service)
+  Refractor RSA hashing class for for steamservices password
+  Service for making steamservices trading requests
+  refractor SteamLogin(steamservices guard code fetcher move to email service)

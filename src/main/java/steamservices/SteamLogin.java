@@ -1,4 +1,4 @@
-package steam;
+package steamservices;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import config.ObjectMapperConfig;
