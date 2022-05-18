@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import config.ObjectMapperConfig;
 import constants.HttpConstants;
 import constants.SteamEndpoints;
+import model.ErrorMessages;
 import model.trademodel.buy.BuyOrder;
 import model.trademodel.buy.BuyOrderResponse;
 import model.trademodel.buy.BuyOrderStatus;
@@ -13,12 +14,14 @@ import model.trademodel.sell.SellOrderDetails;
 import steamenums.ResponseStatusCompartment;
 import utils.CookieUtils;
 import utils.EndpointUtils;
+import utils.HeaderUtils;
 
 import java.io.IOException;
 import java.net.*;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,6 +30,26 @@ public class TradeService {
 
     public TradeService(HttpClient sessionClient){
         this.sessionClient = sessionClient;
+    }
+
+    public Optional<String> cancelSellOrder(int listingId) {
+        String sessionId = this.getSessionId();
+        Map <String, Object> cancelSellOrderParams = new HashMap< >();
+        URI cancelSellOrder = EndpointUtils.addParamsToURL(cancelSellOrderParams, SteamEndpoints.CANCEL_SELL_ORDER);
+        HttpRequest cancelSellOrderRequest = HttpRequest.newBuilder().uri(cancelSellOrder).POST(HttpRequest.BodyPublishers.noBody()).headers(HeaderUtils.getStandardFormURLEncodedForSteam()).build();
+        try {
+            HttpResponse<String> cancelSellOrderResponse = this.sessionClient.send(cancelSellOrderRequest, HttpResponse.BodyHandlers.ofString());
+            int responseStatus = cancelSellOrderResponse.statusCode();
+            if (ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)) {
+                return Optional.of(cancelSellOrderResponse.body());
+            } else {
+                HttpStatusHandlerService.handleStatus(responseStatus, ErrorMessages.construct("cancel sell order"));
+            }
+            return Optional.empty();
+
+        } catch (InterruptedException | IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public Optional<CancelBuyOrderResponse> cancelBuyOrder(int buyOrderId){
@@ -41,19 +64,15 @@ public class TradeService {
         try{
             HttpResponse<String> sellOrderResponse = this.sessionClient.send(cancelBuyOrderRequest, HttpResponse.BodyHandlers.ofString());
             int responseStatus = sellOrderResponse.statusCode();
-            if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
+            if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
                 ObjectMapper mapper = ObjectMapperConfig.getObjectMapper();
                 CancelBuyOrderResponse cancelBuyOrderResponse = mapper.readValue(sellOrderResponse.body(), CancelBuyOrderResponse.class);
                 return Optional.of(cancelBuyOrderResponse);
-            }else if(ResponseStatusCompartment.REDIRECT_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("redirection occurred while trying to cancel buy order");
-            }else if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("client error occurred while trying to cancel buy order");
-            }else if(ResponseStatusCompartment.SERVER_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("server error occurred while trying to cancel buy order");
-            }else{
-                return Optional.empty();
+            }else {
+                HttpStatusHandlerService.handleStatus(responseStatus, ErrorMessages.construct("cancel buy order"));
             }
+            return Optional.empty();
+
         }catch (InterruptedException | IOException e){
             throw new RuntimeException(e);
         }
@@ -70,19 +89,15 @@ public class TradeService {
         try{
             HttpResponse<String> sellOrderResponse = this.sessionClient.send(sellOrderRequest, HttpResponse.BodyHandlers.ofString());
             int responseStatus = sellOrderResponse.statusCode();
-            if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
+            if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
                 ObjectMapper mapper = ObjectMapperConfig.getObjectMapper();
                 SellOrderDetails buyOrderStatus = mapper.readValue(sellOrderResponse.body(), SellOrderDetails.class);
                 return Optional.of(buyOrderStatus);
-            }else if(ResponseStatusCompartment.REDIRECT_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("redirection occurred while trying to sell item");
-            }else if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("client error occurred while trying to sell item");
-            }else if(ResponseStatusCompartment.SERVER_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("server error occurred while trying to sell item");
-            }else{
-                return Optional.empty();
+            }else {
+                HttpStatusHandlerService.handleStatus(responseStatus, ErrorMessages.construct("place sell order"));
             }
+            return Optional.empty();
+
         }catch (InterruptedException | IOException e){
             throw new RuntimeException(e);
         }
@@ -95,33 +110,29 @@ public class TradeService {
 
     public Optional<BuyOrderStatus> getOrderStatus(int buyOrderId) {
 
-            Map<String, Object> requestParams = Map.of("sessionid", getSessionId(), "buy_order_id", buyOrderId);
-            URI endpointURI = EndpointUtils.addParamsToURL(requestParams, SteamEndpoints.ORDER_STATUS_ENDPOINT);
+        Map<String, Object> requestParams = Map.of("sessionid", getSessionId(), "buy_order_id", buyOrderId);
+        URI endpointURI = EndpointUtils.addParamsToURL(requestParams, SteamEndpoints.ORDER_STATUS_ENDPOINT);
 
-            HttpRequest orderStatusRequest = HttpRequest.newBuilder()
-                    .setHeader(HttpConstants.CONTENT_TYPE, HttpConstants.FORM_URL_ENCODED_HEADER_VALUE)
-                    .GET()
-                    .uri(endpointURI)
-                    .build();
-            try{
-                HttpResponse<String> orderStatusResponse = this.sessionClient.send(orderStatusRequest, HttpResponse.BodyHandlers.ofString());
-                int responseStatus = orderStatusResponse.statusCode();
-                if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
-                    ObjectMapper mapper = ObjectMapperConfig.getObjectMapper();
-                    BuyOrderStatus buyOrderStatus = mapper.readValue(orderStatusResponse.body(), BuyOrderStatus.class);
-                    return Optional.of(buyOrderStatus);
-                }else if(ResponseStatusCompartment.REDIRECT_ERROR.checkIfStatusEquals(responseStatus)){
-                    throw new RuntimeException("redirection occurred while trying to get order status");
-                }else if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
-                    throw new RuntimeException("client error occurred while trying to get order status");
-                }else if(ResponseStatusCompartment.SERVER_ERROR.checkIfStatusEquals(responseStatus)){
-                    throw new RuntimeException("server error occurred while trying to get order status");
-                }else{
-                    return Optional.empty();
-                }
-            }catch (InterruptedException | IOException e){
-                throw new RuntimeException(e);
+        HttpRequest orderStatusRequest = HttpRequest.newBuilder()
+                .setHeader(HttpConstants.CONTENT_TYPE, HttpConstants.FORM_URL_ENCODED_HEADER_VALUE)
+                .GET()
+                .uri(endpointURI)
+                .build();
+        try{
+            HttpResponse<String> orderStatusResponse = this.sessionClient.send(orderStatusRequest, HttpResponse.BodyHandlers.ofString());
+            int responseStatus = orderStatusResponse.statusCode();
+            if(ResponseStatusCompartment.SUCCESS.checkIfStatusEquals(responseStatus)){
+                ObjectMapper mapper = ObjectMapperConfig.getObjectMapper();
+                BuyOrderStatus buyOrderStatus = mapper.readValue(orderStatusResponse.body(), BuyOrderStatus.class);
+                return Optional.of(buyOrderStatus);
+            }else {
+                HttpStatusHandlerService.handleStatus(responseStatus, ErrorMessages.construct("trying to get order status"));
             }
+            return Optional.empty();
+
+        }catch (InterruptedException | IOException e){
+            throw new RuntimeException(e);
+        }
     }
 
     public Optional<BuyOrderResponse> placeBuyOrder(BuyOrder order){
@@ -147,12 +158,9 @@ public class TradeService {
                 if(isSuccess){
                     return Optional.of(orderResponse);
                 }
-            }else if(ResponseStatusCompartment.REDIRECT_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("redirection occurred while trying to place new buy order");
-            }else if(ResponseStatusCompartment.CLIENT_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("client error occurred while trying to place new buy order");
-            }else if(ResponseStatusCompartment.SERVER_ERROR.checkIfStatusEquals(responseStatus)){
-                throw new RuntimeException("server error occurred while trying to place new buy order");
+
+            }else {
+                HttpStatusHandlerService.handleStatus(responseStatus, ErrorMessages.construct("place buy order"));
             }
 
         }catch (InterruptedException | IOException e){

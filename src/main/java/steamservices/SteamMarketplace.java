@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 
 public class SteamMarketplace {
 
-        private ConcurrentHashMap<Integer, Thread> itemThread = new ConcurrentHashMap<>();
+        private ConcurrentHashMap<Long, Thread> itemThread = new ConcurrentHashMap<>();
         private CopyOnWriteArrayList<ItemSnipingData> snipedItems = new CopyOnWriteArrayList<>();
         private Country country;
 
@@ -50,7 +50,7 @@ public class SteamMarketplace {
         public Optional<ItemPriceHistogram> getItemPriceHistogram(RequestObject requestObject){
             HttpClient client = this.client;
             URI histogramEndpoint = EndpointUtils.buildURIForRequestObject(requestObject, SteamEndpoints.ITEM_ENDPOINT);
-
+            System.out.println(histogramEndpoint);
             HttpRequest itemPriceHistogramRequest = HttpRequest.newBuilder()
                     .GET()
                     .uri(histogramEndpoint)

@@ -1,15 +1,18 @@
+import constants.SteamEndpoints;
 import exceptions.CaptchaRequiredException;
 import exceptions.CouldNotFindSteamGuardException;
 import mail.*;
-import model.BuySellSignal;
-import model.PriceHistory;
-import model.PriceHistoryTick;
+import model.*;
+import steamenums.Country;
+import steamenums.Currency;
 import steamservices.AuthenticatedMarketplaceData;
 import steamenums.Game;
+import steamservices.SteamMarketplace;
 
 import javax.mail.MessagingException;
 import java.io.IOException;
 import java.net.http.HttpClient;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 public class Home {
@@ -21,25 +24,24 @@ public class Home {
     }
     public static void main(String[] args) throws CaptchaRequiredException, MessagingException, CouldNotFindSteamGuardException, IOException {
 
-        AuthenticatedMarketplaceData steamMarketplace = new AuthenticatedMarketplaceData(HttpClient.newBuilder().build());
-
-        steamMarketplace.getItemPriceHistory(Game.COUNTER_STRIKE, "Nova | Sand Dune (Field-Tested)")
-                .ifPresent(new Consumer<PriceHistory>() {
-                    @Override
-                    public void accept(PriceHistory priceHistory) {
-                        priceHistory.getTicks()
-                                .forEach(new Consumer<PriceHistoryTick>() {
-                                    @Override
-                                    public void accept(PriceHistoryTick priceHistoryTick) {
-                                        System.out.println("----------------------------");
-                                        System.out.println("price: " + priceHistoryTick.getPrice());
-                                        System.out.println("date: " + priceHistoryTick.getDate());
-                                        System.out.println("----------------------------");
-                                        System.out.println();
-                                    }
-                                });
-                    }
-                });
+        SteamMarketplace steamMarketplace = new SteamMarketplace(HttpClient.newBuilder().build());
+        //25611250832
+        Optional<ItemPriceHistogram> itemPriceHistogramOptional = steamMarketplace.getItemPriceHistogram(RequestObject.builder()
+                .countryCode(Country.PL.getCountryCode())
+                .currency(Currency.PL.getCurrencyCode())
+                .language(Country.PL.getLanguageForCountry())
+                .itemNameId(176288467)
+                .build());
+        itemPriceHistogramOptional.ifPresent(data -> {
+            double highest = data.getHighestPrice();
+            double lowest = data.getLowestPrice();
+            data.getHistoricalPriceData()
+                    .forEach(historical_price -> {
+                        double price = historical_price.getPrice();
+                        int sold_amount = historical_price.getSoldAmount();
+                        String soldInfo = historical_price.getSoldInfo();
+                    });
+        });
 
     }
 }

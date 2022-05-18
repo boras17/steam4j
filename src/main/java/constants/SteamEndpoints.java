@@ -11,4 +11,6 @@ public class SteamEndpoints{
     public static final String ORDER_STATUS_ENDPOINT="https://steamcommunity.com/market/getbuyorderstatus";
     public static final String SELL_ITEM_ENDPOINT="https://steamcommunity.com/market/sellitem/";
     public static final String CANCEL_BUY_ORDER_ENDPOINT="https://steamcommunity.com/market/cancelbuyorder/";
+    public static final String MY_LISTINGS_ENDPOINT="https://steamcommunity.com/market/mylistings";
+    public static final String CANCEL_SELL_ORDER="https://steamcommunity.com/market/removelisting/";
 }

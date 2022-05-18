@@ -15,7 +15,7 @@ class RequestObject{
     private String countryCode;
     private String language;
     private int currency;
-    private int itemNameId;
+    private long itemNameId;
 
     public static RequestObject buildDefaultRequestObjectForCountry(Country country, int itemNameId){
         // TODO default build for EUR
