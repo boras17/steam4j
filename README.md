@@ -128,5 +128,4 @@ EmailConfigurationFactory.defaultGmailImapConfiguration(credentials);
 where first parameter is ExecutorService
 In progress:
   Refractor RSA hashing class 
-  cancel sell order
   trade with user: place offer and cancel order
