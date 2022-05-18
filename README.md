@@ -127,8 +127,6 @@ EmailConfigurationFactory.defaultGmailImapConfiguration(credentials);
 ```
 where first parameter is ExecutorService
 In progress:
-  Refractor RSA hashing class for for steamservices password
-  Service for making steamservices trading requests
-  refractor SteamLogin(steamservices guard code fetcher move to email service)
+  Refractor RSA hashing class 
   cancel sell order
   trade with user: place offer and cancel order
